@@ -871,27 +871,91 @@ function wireForms(){
   document.querySelectorAll('form.form').forEach(form=>{
     if(form.dataset.wired) return;
     form.dataset.wired = '1';
+
+    /* Hidden honeypot. People never see or tick it; spam bots that fill in
+       every field do, and Web3Forms discards those submissions. */
+    if(!form.querySelector('[name="botcheck"]')){
+      const trap = document.createElement('input');
+      trap.type = 'checkbox'; trap.name = 'botcheck'; trap.tabIndex = -1;
+      trap.setAttribute('aria-hidden','true'); trap.style.display = 'none';
+      form.appendChild(trap);
+    }
+
     form.querySelectorAll('input,select,textarea').forEach(el=>{
-      const clear = ()=> el.closest('.field').classList.remove('invalid');
+      const field = el.closest('.field');
+      if(!field) return;
+      const clear = ()=> field.classList.remove('invalid');
       el.addEventListener('input', clear);
       el.addEventListener('change', clear);
     });
-    form.addEventListener('submit', e=>{
+
+    form.addEventListener('submit', async e=>{
       e.preventDefault();
+      if(form.dataset.sending) return;
       if(!validate(form)) return;
       const ok = document.getElementById(form.id + '-ok');
       const data = new FormData(form);
+      const training = form.id === 'training-form';
       const lines = [];
-      data.forEach((v,k)=>{ if(String(v).trim()) lines.push(`${k[0].toUpperCase()+k.slice(1)}: ${v}`); });
-      const subject = encodeURIComponent(form.id === 'training-form'
+      data.forEach((v,k)=>{ if(k !== 'botcheck' && String(v).trim()) lines.push(`${k[0].toUpperCase()+k.slice(1)}: ${v}`); });
+      const subjectText = training
         ? 'Training booking enquiry: ' + (data.get('organisation') || 'website')
-        : 'Quotation request: ' + (data.get('need') || 'website'));
-      const body = encodeURIComponent(lines.join('\n'));
-      if(ok){
-        ok.classList.add('show');
+        : 'Quotation request: ' + (data.get('need') || 'website');
+      const to = training ? CO.email : CO.sales;
+      const keys = CO.formKeys || {};
+      const key = training ? (keys.info || keys.sales) : (keys.sales || keys.info);
+
+      const showFallback = failed => {
+        if(!ok) return;
+        const mailto = `mailto:${to}?subject=${encodeURIComponent(subjectText)}&body=${encodeURIComponent(lines.join('\n'))}`;
+        const note = ok.querySelector('.small');
+        if(note && failed){
+          note.innerHTML = `We could not send this automatically just now. Your details are ready, so
+            <a href="${mailto}">email them to ${to}</a> or call ${CO.tel1}.`;
+        }
         const link = ok.querySelector('a[href^="mailto"]');
-        if(link) link.href = `mailto:${form.id === 'training-form' ? CO.email : CO.sales}?subject=${subject}&body=${body}`;
+        if(link) link.href = mailto;
+        ok.classList.add('show');
         ok.scrollIntoView({block:'center', behavior:reduceMotion?'auto':'smooth'});
+      };
+
+      if(!key){ showFallback(false); return; }
+
+      const btn = form.querySelector('[type="submit"]');
+      const label = btn ? btn.innerHTML : '';
+      form.dataset.sending = '1';
+      if(btn){ btn.disabled = true; btn.innerHTML = '<span>Sending&hellip;</span>'; }
+
+      const payload = {};
+      data.forEach((v,k)=>{ payload[k] = v; });
+      payload.access_key = key;
+      payload.subject = subjectText;
+      payload.from_name = 'Kadala website';
+      if(data.get('email')) payload.replyto = data.get('email');
+
+      try{
+        const res = await fetch('https://api.web3forms.com/submit', {
+          method:'POST',
+          headers:{'Content-Type':'application/json', 'Accept':'application/json'},
+          body:JSON.stringify(payload)
+        });
+        const out = await res.json().catch(()=>({}));
+        if(!res.ok || !out.success) throw new Error(out.message || 'Send failed');
+        if(ok){
+          const name = String(data.get('name') || data.get('contact') || '').trim().split(' ')[0];
+          ok.innerHTML = `<span style="flex:none;width:26px;color:var(--red)">${G.icon('check','plain')}</span>
+            <div><b>Thank you${name ? ', ' + name.replace(/[<>&"]/g,'') : ''}. Your ${training ? 'training enquiry' : 'enquiry'} has been sent.</b>
+            <span class="small">The Kadala team has received it and will be in touch shortly. For anything urgent, call
+            <a href="tel:${CO.tel1Raw}">${CO.tel1}</a>.</span></div>`;
+          ok.classList.add('show');
+          ok.scrollIntoView({block:'center', behavior:reduceMotion?'auto':'smooth'});
+        }
+        form.reset();
+      }catch(err){
+        showFallback(true);
+      }finally{
+        delete form.dataset.sending;
+        if(btn){ btn.disabled = false; btn.innerHTML = label; }
       }
     });
   });

@@ -16,6 +16,13 @@ const CO = {
   email:'info@kadalafiresafety.com',
   sales:'sales@kadalafiresafety.com',
   regNo:'PVT-EY13PBZD',
+  /* Web3Forms access keys. Each key is created at web3forms.com for one inbox,
+     and every form submission is delivered to that inbox. Leave a key empty and
+     the form falls back to opening the visitor's own email app. */
+  formKeys:{
+    sales:'45131ed9-3252-4056-9b81-72d2a26c89b3',   /* Get a Quote and Contact forms */
+    info:'45131ed9-3252-4056-9b81-72d2a26c89b3'     /* Book Training form */
+  },
   tel1:'0721 629427',
   tel2:'0721 838796',
   tel1Raw:'+254721629427',
